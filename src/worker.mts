@@ -2,13 +2,8 @@ import { NotFoundError } from 'cloudflare/core/error.mjs';
 import { Records } from 'cloudflare/resources/dns/records';
 import { createClient } from 'cloudflare/tree-shakable';
 
-interface Env {
-  PROXY_SECRET: string; // fake token
-  CLOUDFLARE_API_TOKEN: string; // real token
-  ZONE_ID: string;
-  ZONE_NAME: string;
-  ALLOWED_CHALLENGE_NAME: string;
-}
+import type { Env } from './env';
+import { recordNameAuthorized, zoneNameAuthorized } from './helpers/zone-match.helpers';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -175,35 +170,6 @@ async function requestAuthorized(env: Env, request: Request): Promise<boolean> {
   ]);
 
   return crypto.subtle.timingSafeEqual(suppliedHash, expectedHash);
-}
-
-function zoneNameAuthorized(env: Env, name: string | null | undefined): boolean {
-  if (!name) {
-    return false;
-  }
-
-  // ZONE_NAME and the input name could be with or without the trailing dot.
-
-  return matchesRegardlessOfTrailingDot(name, env.ZONE_NAME);
-}
-
-function recordNameAuthorized(env: Env, name: string | null | undefined): boolean {
-  if (!name) {
-    return false;
-  }
-
-  // ALLOWED_CHALLENGE_NAME and the input name could be fully-qualified (with or without the trailing dot)
-  // or just the record name without the domain/zone name.
-
-  return (
-    matchesRegardlessOfTrailingDot(name, env.ALLOWED_CHALLENGE_NAME) ||
-    matchesRegardlessOfTrailingDot(name, `${env.ALLOWED_CHALLENGE_NAME}.${env.ZONE_NAME}`) ||
-    matchesRegardlessOfTrailingDot(`${name}.${env.ZONE_NAME}`, env.ALLOWED_CHALLENGE_NAME)
-  );
-}
-
-function matchesRegardlessOfTrailingDot(value1: string, value2: string): boolean {
-  return value1 === value2 || `${value1}.` === value2 || value1 === `${value2}.`;
 }
 
 function readQueryParams<const TKeys extends readonly string[]>(

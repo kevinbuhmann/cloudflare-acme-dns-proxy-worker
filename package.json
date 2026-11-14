@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
     "deploy": "wrangler deploy",
     "type-check": "tsc --noEmit",
     "lint": "biome check . --error-on-warnings",
@@ -17,6 +19,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.6.7",
     "@cloudflare/workers-types": "5.20261114.1",
-    "@types/node": "26.6.6"
+    "@types/node": "26.6.6",
+    "vitest": "5.1.0"
   }
 }
