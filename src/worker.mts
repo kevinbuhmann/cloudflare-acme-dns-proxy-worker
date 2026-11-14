@@ -12,7 +12,10 @@ interface Env {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    console.log('Incoming request', { method: request.method, url: request.url });
+
     if (!(await requestAuthorized(env, request))) {
+      console.error('Unauthorized access attempt');
       return jsonError('Unauthorized', 401);
     }
 
@@ -21,12 +24,19 @@ export default {
 
     // Zone discovery: only permit lookup of the configured zone.
     if (requestUrl.pathname === '/client/v4/zones' && requestMethod === 'GET') {
-      const [requestParams, requestParamsErrorResponse] = readQueryParams(requestUrl.searchParams, ['name']);
-      if (requestParamsErrorResponse) {
-        return requestParamsErrorResponse;
+      const readQueryParamsResult = readQueryParams(requestUrl.searchParams, ['name']);
+      if ('error' in readQueryParamsResult) {
+        console.error('Zone lookup rejected - invalid query parameters', {
+          requestParams: Object.fromEntries(requestUrl.searchParams),
+          error: readQueryParamsResult.error,
+        });
+        return jsonError(readQueryParamsResult.error, 403);
       }
 
+      const requestParams = readQueryParamsResult.params;
+
       if (!zoneNameAuthorized(env, requestParams.name)) {
+        console.error('Zone lookup rejected - zone not allowed', { requestParams });
         return jsonError('Zone not allowed', 403);
       }
 
@@ -34,6 +44,7 @@ export default {
         name: requestParams.name,
       });
 
+      console.log('Zone lookup authorized', { requestParams });
       return cloudflare(env, `/zones?${allowedParams}`);
     }
 
@@ -41,12 +52,19 @@ export default {
 
     // List records. The Caddy Cloudflare provider needs this when locating records to delete or update.
     if (requestUrl.pathname === recordsPath && requestMethod === 'GET') {
-      const [requestParams, requestParamsErrorResponse] = readQueryParams(requestUrl.searchParams, ['type', 'name']);
-      if (requestParamsErrorResponse) {
-        return requestParamsErrorResponse;
+      const readQueryParamsResult = readQueryParams(requestUrl.searchParams, ['type', 'name']);
+      if ('error' in readQueryParamsResult) {
+        console.error('Record query rejected - invalid query parameters', {
+          requestParams: Object.fromEntries(requestUrl.searchParams),
+          error: readQueryParamsResult.error,
+        });
+        return jsonError(readQueryParamsResult.error, 403);
       }
 
+      const requestParams = readQueryParamsResult.params;
+
       if (requestParams.type !== 'TXT' || !recordNameAuthorized(env, requestParams.name)) {
+        console.error('Record query rejected - type or name not allowed', { requestParams });
         return jsonError('Record query not allowed', 403);
       }
 
@@ -55,6 +73,7 @@ export default {
         name: requestParams.name,
       });
 
+      console.log('List records authorized', { requestParams });
       return cloudflare(env, `/zones/${env.ZONE_ID}/dns_records?${allowedParams}`);
     }
 
@@ -74,6 +93,7 @@ export default {
       }
 
       if (requestedRecord === null || typeof requestedRecord !== 'object' || Array.isArray(requestedRecord)) {
+        console.error('Record creation rejected - invalid input type', { requestedRecord });
         return jsonError('Expected a DNS record object', 400);
       }
 
@@ -87,6 +107,7 @@ export default {
         typeof requestedRecord.content !== 'string' ||
         requestedRecord.content.length > 2048
       ) {
+        console.error('Record creation rejected - validation failed', { requestedRecord });
         return jsonError('Record not allowed', 403);
       }
 
@@ -96,6 +117,7 @@ export default {
         content: requestedRecord.content,
       };
 
+      console.log('Creating DNS-01 challenge record', { allowedRecord });
       return cloudflare(env, `/zones/${env.ZONE_ID}/dns_records`, 'POST', JSON.stringify(allowedRecord));
     }
 
@@ -106,28 +128,37 @@ export default {
     if (recordIdPathMatch && requestMethod === 'DELETE') {
       const recordId = recordIdPathMatch[1];
 
+      console.log('Deleting DNS-01 challenge record', { recordId });
+
       const cloudFlareClient = createClient({
         apiToken: env.CLOUDFLARE_API_TOKEN,
         resources: [Records],
       });
 
+      let existingRecord: Records.RecordResponse;
+
       try {
-        const existingRecord = await cloudFlareClient.dns.records.get(recordId, { zone_id: env.ZONE_ID });
+        existingRecord = await cloudFlareClient.dns.records.get(recordId, { zone_id: env.ZONE_ID });
 
         if (existingRecord.type !== 'TXT' || !recordNameAuthorized(env, existingRecord.name)) {
+          console.error('Delete record rejected - does not belong to challenge', { existingRecord });
           return jsonError('Record does not belong to challenge', 403);
         }
       } catch (error) {
         if (error instanceof NotFoundError) {
+          console.error('Delete record rejected - record not found', { recordId });
           return jsonError('Record does not belong to challenge', 403);
         } else {
+          console.error('Failed to fetch existing record', { error: (error as Error).message });
           return jsonError('Failed to fetch existing record', 500);
         }
       }
 
+      console.log('Delete DNS-01 challenge record authorized', { existingRecord });
       return cloudflare(env, `/zones/${env.ZONE_ID}/dns_records/${recordId}`, 'DELETE');
     }
 
+    console.error('Operation not allowed - unsupported endpoint/method');
     return jsonError('Operation not allowed', 403);
   },
 };
@@ -178,25 +209,25 @@ function matchesRegardlessOfTrailingDot(value1: string, value2: string): boolean
 function readQueryParams<const TKeys extends readonly string[]>(
   params: URLSearchParams,
   keys: TKeys,
-): [Record<TKeys[number], string>, null] | [null, Response] {
+): { params: Record<TKeys[number], string> } | { error: string } {
   const result: Record<string, string> = {};
 
   for (const key of params.keys()) {
     if (!keys.includes(key)) {
-      return [null, jsonError(`Parameter "${key}" is not allowed`, 403)];
+      return { error: `Parameter "${key}" is not allowed` };
     }
     const [value, ...rest] = params.getAll(key);
     if (rest.length > 0) {
-      return [null, jsonError(`Multiple values for parameter "${key}" are not allowed`, 400)];
+      return { error: `Multiple values for parameter "${key}" are not allowed` };
     }
     result[key] = value;
   }
 
   if (keys.some(key => !(key in result))) {
-    return [null, jsonError(`Missing required query parameter`, 400)];
+    return { error: `Missing required query parameter` };
   }
 
-  return [result as Record<TKeys[number], string>, null];
+  return { params: result as Record<TKeys[number], string> };
 }
 
 function jsonError(message: string, status: number): Response {
