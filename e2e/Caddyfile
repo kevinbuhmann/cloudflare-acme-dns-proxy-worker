@@ -1,0 +1,11 @@
+{
+  acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+*.{$BASE_DOMAIN} {
+  tls {
+    dns cloudflare {$CLOUDFLARE_API_TOKEN}
+  }
+
+  respond "OK"
+}

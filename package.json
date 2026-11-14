@@ -1,0 +1,22 @@
+{
+  "name": "cloudflare-acme-dns-proxy-worker",
+  "author": "Kevin Buhmann",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit",
+    "lint": "biome check . --error-on-warnings",
+    "lint:fix": "biome check . --write"
+  },
+  "dependencies": {
+    "cloudflare": "7.3.0",
+    "typescript": "5.2.2",
+    "wrangler": "4.162.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.7",
+    "@cloudflare/workers-types": "5.20261114.1",
+    "@types/node": "26.6.6"
+  }
+}

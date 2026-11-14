@@ -1,0 +1,16 @@
+services:
+  caddy:
+    build:
+      context: .
+      args:
+        CLOUDFLARE_API_URL: ${CLOUDFLARE_API_URL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
